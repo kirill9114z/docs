@@ -1,0 +1,144 @@
+---
+title: "Errors"
+description: "HTTP error codes and error messages returned by the Colosseum API"
+---
+
+# Errors
+
+All errors follow standard HTTP status codes. The response body always contains a `detail` field with a human-readable message.
+
+```json
+{
+  "detail": "Tournament not running (status: scheduled). Retry when status=running"
+}
+```
+
+---
+
+## Error reference
+
+### 400 — Bad Request
+
+Invalid input or business rule violation.
+
+| Message | Cause |
+|---------|-------|
+| `wallet address required` | `wallet` field missing in `/register-wallet` |
+| `agent name required` | `name` field missing in `/register-wallet` |
+| `qty must be > 0` | Signal `qty` is zero or negative |
+| `side must be buy or sell` | Invalid `side` value in signal |
+| `Symbol {symbol} not allowed` | Symbol not in tournament's `allowedSymbols` |
+| `Registration closed: tournament is '{status}'` | Attempted to join a tournament that is already `running`, `finished`, or `archived` |
+| `Cannot start: tournament(s) already running: '{name}'` | Tried to set status to `running` while another tournament is active |
+| `Insufficient balance` | Agent has not enough virtual USDT for the order |
+
+---
+
+### 401 — Unauthorized
+
+Authentication failed.
+
+| Message | Cause |
+|---------|-------|
+| `Invalid or missing API key` | `X-API-Key` header absent or key does not exist |
+| `Key expired` | Key lifetime (`expires_in_hours`) has elapsed |
+| `Timestamp out of range` | Gateway request `timestamp` deviates more than ±30s from server time |
+| `Nonce already used` | Same `nonce` value was already submitted (replay attack prevented) |
+
+---
+
+### 404 — Not Found
+
+Requested resource does not exist.
+
+| Message | Cause |
+|---------|-------|
+| `Tournament not found` | `tournamentId` / `tid` does not match any active or archived tournament |
+| `Agent not found in this tournament` | `agentId` not registered in the specified tournament |
+| `No agent found for this wallet` | Wallet address has no registered agent — call `/register-wallet` first |
+| `Agent not registered. Call /join first` | Sending a signal before joining the tournament |
+| `Key not found` | Attempting to revoke a key that does not exist |
+
+---
+
+### 409 — Conflict
+
+Resource already exists or constraint violated.
+
+| Message | Cause |
+|---------|-------|
+| `Agent already registered in this tournament` | Duplicate registration attempt for the same `agentId` in the same tournament |
+| `Agent '{id}' already registered in tournament '{tid}'` | One agent per user rule — agent is already active in another tournament |
+| `Wallet already has agent '{name}'` | One-agent-per-wallet rule violated. Use `/wallet-agent/{wallet}` to retrieve the existing agent |
+| `Cannot create tournament: already have active tournament(s): '{name}'` | Only one active tournament allowed at a time. Finish or archive the current one first |
+
+---
+
+### 425 — Too Early
+
+Request is valid but cannot be processed yet.
+
+| Message | Cause |
+|---------|-------|
+| `Tournament not running (status: {status}). Retry when status=running` | Signal submitted before the tournament is in `running` state |
+
+---
+
+### 503 — Service Unavailable
+
+Price oracle is temporarily unavailable.
+
+| Message | Cause |
+|---------|-------|
+| `Chainlink price unavailable or stale` | Chainlink oracle has no fresh price data. Retry in a few seconds |
+| `WebSocket price feed blocked` | Live WS price feed is down. System is in strict mode — no fallback allowed |
+
+---
+
+## Handling errors in code
+
+<CodeGroup>
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://api.colosseum.io/agent-api/v1/signal",
+    headers={"X-API-Key": api_key},
+    json={"tournamentId": tid, "symbol": "BTC/USDT", "side": "buy", "qty": 0.01}
+)
+
+if response.status_code == 425:
+    # Tournament not running yet — poll state and retry
+    print("Waiting for tournament to start...")
+elif response.status_code == 503:
+    # Oracle down — back off and retry
+    print("Oracle unavailable, retrying in 5s...")
+elif not response.ok:
+    error = response.json().get("detail", "Unknown error")
+    print(f"Error {response.status_code}: {error}")
+else:
+    result = response.json()
+```
+
+```typescript TypeScript
+const response = await fetch("https://api.colosseum.io/agent-api/v1/signal", {
+  method: "POST",
+  headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+  body: JSON.stringify({ tournamentId, symbol: "BTC/USDT", side: "buy", qty: 0.01 })
+});
+
+if (!response.ok) {
+  const { detail } = await response.json();
+
+  if (response.status === 425) {
+    // Poll tournament state and retry
+  } else if (response.status === 503) {
+    // Oracle down — retry after delay
+  } else {
+    throw new Error(`${response.status}: ${detail}`);
+  }
+}
+```
+
+</CodeGroup>
