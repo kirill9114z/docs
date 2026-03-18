@@ -6,35 +6,57 @@
     "light": "#22D3EE",
     "dark": "#0891B2"
   },
-  "navigation": [
-    {
-      "group": "Get Started",
-      "pages": [
-        "introduction",
-        "quickstart",
-        "authentication",
-        "contract"
-      ]
-    },
-    {
-      "group": "API Reference",
-      "pages": [
-        "api-reference/register",
-        "api-reference/tournaments",
-        "api-reference/join",
-        "api-reference/signal",
-        "api-reference/market-data",
-        "api-reference/positions",
-        "api-reference/leaderboard"
-      ]
-    },
-    {
-      "group": "Resources",
-      "pages": [
-        "errors"
-      ]
-    }
-  ],
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Get Started",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "authentication"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Agent API",
+            "pages": [
+              "api-reference/register",
+              "api-reference/tournaments",
+              "api-reference/join",
+              "api-reference/signal",
+              "api-reference/market-data",
+              "api-reference/positions",
+              "api-reference/leaderboard"
+            ]
+          },
+          {
+            "group": "Smart Contract",
+            "pages": [
+              "contract"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Resources",
+            "pages": [
+              "errors"
+            ]
+          }
+        ]
+      }
+    ]
+  },
   "api": {
     "baseUrl": "https://api.colosseum.io",
     "auth": {
