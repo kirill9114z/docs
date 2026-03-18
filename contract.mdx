@@ -1,0 +1,370 @@
+---
+title: "Smart Contract"
+description: "TradingArena contract on Avalanche Fuji Testnet — functions, parameters and access control"
+---
+
+# Smart Contract
+
+The `TradingArena` contract is deployed on **Avalanche Fuji Testnet** and handles all on-chain logic: arena creation, player deposits, virtual trading, winner selection, and reward payouts.
+
+<Info>
+  **Contract address:** `0x35CD1328E694CCa53068dbEBC72a71d2642d6CF8`
+  **Network:** Avalanche Fuji Testnet (Chain ID: 43113)
+  **Compiler:** Solidity `0.8.28`, EVM `cancun`
+  [View on Snowtrace ↗](https://testnet.snowtrace.io/address/0x35CD1328E694CCa53068dbEBC72a71d2642d6CF8)
+</Info>
+
+---
+
+## Access control
+
+| Role | Address | Permissions |
+|------|---------|-------------|
+| `owner` | Deployer wallet | `createArena`, `deleteArena`, `withdrawCommission`, `setBackend`, `transferOwnership` |
+| `backend` | Backend server wallet | `startBattle`, `endBattle` |
+| `agent` | Bot wallet | `executeOrder`, `closeOrder` |
+| `player` | Human wallet | `joinArena`, `claimReward` |
+
+<Warning>
+  An address cannot be both a player and an agent simultaneously. The contract enforces strict role separation — registering as an agent blocks the same address from joining as a player, and vice versa.
+</Warning>
+
+---
+
+## Constants
+
+| Name | Value | Description |
+|------|-------|-------------|
+| `VIRTUAL_STARTING_BALANCE` | `10,000 USDT` (1e22 wei) | Virtual balance issued to each agent at battle start |
+| `MAX_COMMISSION_BPS` | `2000` | Maximum commission: 20% in basis points |
+| `TOKEN_COUNT` | `3` | Number of tradable tokens: AVAX, BTC, ETH |
+
+---
+
+## Token IDs
+
+| ID | Token | Enum value |
+|----|-------|------------|
+| `0` | AVAX | `TokenId.AVAX` |
+| `1` | BTC | `TokenId.BTC` |
+| `2` | ETH | `TokenId.ETH` |
+
+---
+
+## Owner functions
+
+### `createArena`
+
+```solidity
+function createArena(ArenaConfig calldata config)
+  external
+  onlyOwner
+  returns (uint256 arenaId)
+```
+
+Creates a new arena with the given configuration. Returns the assigned `arenaId`.
+
+**`ArenaConfig` fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `entryDeposit` | `uint256` | Required AVAX deposit to enter (wei). Must be `> 0` |
+| `maxParticipants` | `uint256` | Maximum players per battle. Must be `≥ 2` |
+| `minParticipants` | `uint256` | Minimum players to start. Must be `≥ 2` and `≤ maxParticipants` |
+| `duration` | `uint256` | Battle duration in seconds |
+| `cooldown` | `uint256` | Minimum seconds between consecutive battles in the same arena |
+| `commissionBps` | `uint16` | Owner commission in basis points. Max `2000` (20%) |
+
+**Reverts:** `InvalidParticipants`, `InvalidCommission`, `InsufficientDeposit`
+
+---
+
+### `deleteArena`
+
+```solidity
+function deleteArena(uint256 arenaId)
+  external
+  onlyOwner
+```
+
+Deletes an arena permanently. All queued and idle players are automatically refunded via `pendingReward` (pull-pattern). Cannot be called while a battle is `Active`.
+
+**Reverts:** `ArenaDoesNotExist`, `ArenaHasActiveBattle`
+
+---
+
+### `withdrawCommission`
+
+```solidity
+function withdrawCommission(address to)
+  external
+  onlyOwner
+```
+
+Withdraws all accumulated platform commission to the specified address.
+
+---
+
+### `setBackend`
+
+```solidity
+function setBackend(address _backend)
+  external
+  onlyOwner
+```
+
+Updates the backend wallet address that is authorized to call `startBattle` and `endBattle`.
+
+**Reverts:** `ZeroAddress`
+
+---
+
+### `transferOwnership`
+
+```solidity
+function transferOwnership(address newOwner)
+  external
+  onlyOwner
+```
+
+Transfers owner role to a new address.
+
+**Reverts:** `ZeroAddress`
+
+---
+
+## Player functions
+
+### `joinArena`
+
+```solidity
+function joinArena(
+  uint256 arenaId,
+  address agentAddress,
+  string calldata agentName
+) external payable
+```
+
+Player enters an arena by sending the required AVAX deposit. The `agentAddress` is the bot wallet that will trade on the player's behalf.
+
+- If the arena is `Idle` and not full → player joins the current battle directly
+- If the arena is `Active`, full, or `Finished` → player enters the **FIFO queue** for the next battle
+- If `msg.value > entryDeposit` → excess AVAX is automatically refunded
+
+**Reverts:** `InsufficientDeposit`, `ZeroAddress`, `OwnerCannotBeAgent`, `AgentCannotBeOwner`, `AgentAlreadyRegistered`, `AlreadyJoined`
+
+---
+
+### `claimReward`
+
+```solidity
+function claimReward()
+  external
+```
+
+Withdraws the caller's pending reward balance. Callable by any player with a non-zero `pendingReward`.
+
+**Reverts:** `NoPendingReward`, `TransferFailed`
+
+---
+
+## Backend functions
+
+### `startBattle`
+
+```solidity
+function startBattle(uint256 arenaId)
+  external
+  onlyBackend
+```
+
+Starts the battle in the given arena. Pulls queued players into the battle to fill remaining spots before starting. Enforces the `cooldown` period between consecutive battles.
+
+**Reverts:** `ArenaNotIdle`, `ArenaCooldownNotMet`, `NotEnoughParticipants`
+
+---
+
+### `endBattle`
+
+```solidity
+function endBattle(uint256 arenaId, uint256 calldata currentPrices)[1]
+  external
+  onlyBackend
+```
+
+Ends the active battle. Marks all open token holdings to market using `currentPrices`, calculates total PnL for each participant, selects the winner, and distributes the prize pool.
+
+`currentPrices` must be ordered as `[avaxPrice, btcPrice, ethPrice]` in 18-decimal USDT values.
+
+**Winner formula:**
+```
+totalPnl = realizedPnl + virtualUSDT + openPositionsValue - VIRTUAL_STARTING_BALANCE
+```
+The participant with the highest `totalPnl` receives `totalDeposits - commission`.
+
+**Reverts:** `ArenaNotActive`, `DurationNotElapsed`
+
+---
+
+## Agent trading functions
+
+### `executeOrder`
+
+```solidity
+function executeOrder(
+  uint256 arenaId,
+  TokenId tokenId,
+  uint256 price,
+  uint256 usdtAmount
+) external onlyAgent
+```
+
+Agent spends virtual USDT to buy a token. Multiple calls accumulate into a single holding using a **weighted average entry price**.
+
+**Weighted average price formula:**
+```
+newAvgPrice = (oldBalance × oldAvg + tokenAmount × price) / (oldBalance + tokenAmount)
+```
+
+**Reverts:** `ArenaNotActive`, `InsufficientVirtualBalance`
+
+---
+
+### `closeOrder`
+
+```solidity
+function closeOrder(
+  uint256 arenaId,
+  TokenId tokenId,
+  uint256 closePrice,
+  uint256 sellAmount
+) external onlyAgent
+```
+
+Agent sells a token holding (partially or fully) back to virtual USDT. Pass `type(uint256).max` as `sellAmount` to close the entire position.
+
+**PnL formula:**
+```
+pnl = (closePrice − avgEntryPrice) × sellAmount / 1e18
+```
+
+**Reverts:** `ArenaNotActive`, `PositionNotOpen`
+
+---
+
+## View functions
+
+### `getArena`
+
+```solidity
+function getArena(uint256 arenaId)
+  external view
+  returns (ArenaInfo memory)
+```
+
+Returns full runtime state of an arena including config, status, participant count, deposits, and timestamps.
+
+---
+
+### `getPlayer`
+
+```solidity
+function getPlayer(uint256 arenaId, uint256 battleId, address playerOwner)
+  external view
+  returns (Player memory)
+```
+
+Returns a player's state in a specific battle: agent address, virtual USDT balance, realized PnL, and active status.
+
+---
+
+### `getHolding`
+
+```solidity
+function getHolding(uint256 arenaId, uint256 battleId, address agent, TokenId tokenId)
+  external view
+  returns (TokenHolding memory)
+```
+
+Returns a token holding for a specific agent: balance, weighted average entry price, and total USDT spent.
+
+---
+
+### `getPlayerTotalPnl`
+
+```solidity
+function getPlayerTotalPnl(
+  uint256 arenaId,
+  uint256 battleId,
+  address playerOwner,
+  uint256 calldata currentPrices[1]
+) external view returns (int256 totalPnl)
+```
+
+Calculates a player's real-time total PnL using live prices. Use this for frontend leaderboard display. Pass current prices in the same order as `endBattle`: `[avaxPrice, btcPrice, ethPrice]`.
+
+---
+
+### `getBattleParticipants`
+
+```solidity
+function getBattleParticipants(uint256 arenaId, uint256 battleId)
+  external view
+  returns (address[] memory)
+```
+
+Returns the array of all player wallet addresses registered in a specific battle.
+
+---
+
+### `getQueueLength`
+
+```solidity
+function getQueueLength(uint256 arenaId)
+  external view
+  returns (uint256)
+```
+
+Returns the number of players currently waiting in the FIFO queue for the next battle.
+
+---
+
+## Events
+
+| Event | Emitted when |
+|-------|-------------|
+| `ArenaCreated(uint256 arenaId, ArenaConfig config)` | New arena is created |
+| `ArenaDeleted(uint256 arenaId)` | Arena is deleted |
+| `PlayerJoined(uint256 arenaId, uint256 battleId, address owner, address agent, string name)` | Player joins a battle directly or from queue |
+| `PlayerQueued(uint256 arenaId, address owner, address agent, string name)` | Player enters the waiting queue |
+| `BattleStarted(uint256 arenaId, uint256 battleId, uint256 participants, uint256 startTime)` | Battle begins |
+| `BattleEnded(uint256 arenaId, uint256 battleId, address winner, int256 bestPnl, uint256 reward)` | Battle ends and winner is determined |
+| `OrderExecuted(uint256 arenaId, uint256 battleId, address agent, TokenId tokenId, uint256 price, uint256 amount, OrderSide side)` | Buy order executed |
+| `OrderClosed(uint256 arenaId, uint256 battleId, address agent, TokenId tokenId, uint256 price, int256 pnl)` | Sell order executed |
+
+---
+
+## Custom errors
+
+| Error | Cause |
+|-------|-------|
+| `NotOwner()` | Caller is not the contract owner |
+| `NotBackend()` | Caller is not the authorized backend wallet |
+| `NotAgent()` | Caller is not a registered agent in this battle |
+| `ArenaDoesNotExist()` | `arenaId` does not exist |
+| `ArenaNotIdle()` | `startBattle` called when arena is not in `Idle` state |
+| `ArenaNotActive()` | Trading or `endBattle` called when arena is not `Active` |
+| `ArenaHasActiveBattle()` | `deleteArena` called while a battle is running |
+| `ArenaCooldownNotMet(uint256 readyAt)` | `startBattle` called before cooldown expires. `readyAt` = earliest allowed timestamp |
+| `DurationNotElapsed(uint256 endsAt)` | `endBattle` called before battle duration ends |
+| `NotEnoughParticipants(uint256 current, uint256 required)` | Not enough players to start |
+| `InsufficientDeposit(uint256 sent, uint256 required)` | `msg.value` too low |
+| `InsufficientVirtualBalance(uint256 available, uint256 required)` | Agent has insufficient virtual USDT |
+| `AgentAlreadyRegistered()` | `agentAddress` is already registered in another active battle |
+| `OwnerCannotBeAgent()` | Player wallet used as agent address |
+| `AgentCannotBeOwner()` | Agent wallet attempting to join as player |
+| `AlreadyJoined()` | Player already active in this battle |
+| `PositionNotOpen()` | `closeOrder` called with no open holding |
+| `ZeroAddress()` | Address parameter is `address(0)` |
+| `TransferFailed()` | Native AVAX transfer failed |
+| `NoPendingReward()` | `claimReward` called with zero balance |
