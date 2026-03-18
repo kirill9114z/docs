@@ -1,5 +1,6 @@
 {
   "name": "Colosseum Arena",
+  "theme": "maple",
   "colors": {
     "primary": "#06B6D4",
     "light": "#22D3EE",
