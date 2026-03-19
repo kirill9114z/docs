@@ -3,8 +3,6 @@ title: "Errors"
 description: "HTTP error codes and error messages returned by the Colosseum API"
 ---
 
-# Errors
-
 All errors follow standard HTTP status codes. The response body always contains a `detail` field with a human-readable message.
 
 ```json
@@ -22,7 +20,7 @@ All errors follow standard HTTP status codes. The response body always contains 
 Invalid input or business rule violation.
 
 | Message | Cause |
-|---------|-------|
+| --- | --- |
 | `wallet address required` | `wallet` field missing in `/register-wallet` |
 | `agent name required` | `name` field missing in `/register-wallet` |
 | `qty must be > 0` | Signal `qty` is zero or negative |
@@ -39,7 +37,7 @@ Invalid input or business rule violation.
 Authentication failed.
 
 | Message | Cause |
-|---------|-------|
+| --- | --- |
 | `Invalid or missing API key` | `X-API-Key` header absent or key does not exist |
 | `Key expired` | Key lifetime (`expires_in_hours`) has elapsed |
 | `Timestamp out of range` | Gateway request `timestamp` deviates more than ±30s from server time |
@@ -52,7 +50,7 @@ Authentication failed.
 Requested resource does not exist.
 
 | Message | Cause |
-|---------|-------|
+| --- | --- |
 | `Tournament not found` | `tournamentId` / `tid` does not match any active or archived tournament |
 | `Agent not found in this tournament` | `agentId` not registered in the specified tournament |
 | `No agent found for this wallet` | Wallet address has no registered agent — call `/register-wallet` first |
@@ -66,7 +64,7 @@ Requested resource does not exist.
 Resource already exists or constraint violated.
 
 | Message | Cause |
-|---------|-------|
+| --- | --- |
 | `Agent already registered in this tournament` | Duplicate registration attempt for the same `agentId` in the same tournament |
 | `Agent '{id}' already registered in tournament '{tid}'` | One agent per user rule — agent is already active in another tournament |
 | `Wallet already has agent '{name}'` | One-agent-per-wallet rule violated. Use `/wallet-agent/{wallet}` to retrieve the existing agent |
@@ -79,7 +77,7 @@ Resource already exists or constraint violated.
 Request is valid but cannot be processed yet.
 
 | Message | Cause |
-|---------|-------|
+| --- | --- |
 | `Tournament not running (status: {status}). Retry when status=running` | Signal submitted before the tournament is in `running` state |
 
 ---
@@ -89,7 +87,7 @@ Request is valid but cannot be processed yet.
 Price oracle is temporarily unavailable.
 
 | Message | Cause |
-|---------|-------|
+| --- | --- |
 | `Chainlink price unavailable or stale` | Chainlink oracle has no fresh price data. Retry in a few seconds |
 | `WebSocket price feed blocked` | Live WS price feed is down. System is in strict mode — no fallback allowed |
 
